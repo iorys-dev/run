@@ -219,3 +219,8 @@ addAlias() {
 
     FUNCTION_ALIAS[$FUNCTION_ALIAS_NAME]=$FUNCTION_BASE_NAME
 }
+
+addAlias "composerInstall" "composer:install"
+addAlias "composer-install" "composer:install"
+addAlias "composerUpdate" "composer:update"
+addAlias "composer-update" "composer:update"
