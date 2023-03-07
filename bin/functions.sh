@@ -89,7 +89,7 @@ appShutdown() {
 curlCheck() {
     writeInfo "Run curl ${@}"
     # shellcheck disable=SC2086
-    docker-compose exec php -T curl -s --max-time 5 --request GET ${@} >/dev/null && echo "OK" || echo "NO"
+    docker-compose exec -T php curl -s --max-time 5 --request GET ${@} >/dev/null && echo "OK" || echo "NO"
 }
 
 exec() {
