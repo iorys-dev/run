@@ -1,0 +1,13 @@
+{
+    "name": "iorys/run",
+    "description": "IORYS Run script",
+    "type": "library",
+    "license": "MIT",
+    "authors": [
+        {
+            "name": "Vitalijs Litvinovs",
+            "email": "vitalijs@iorys.com"
+        }
+    ],
+    "require": {}
+}
