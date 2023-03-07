@@ -13,7 +13,7 @@ composer require iorys/run
 Copy run-example.sh to your project root and rename it to run
 
 ```bash
-cp vendor/iorys/run/run-example.sh run
+cp vendor/iorys/run/bin/run-example.sh run
 ```
 
 ---
