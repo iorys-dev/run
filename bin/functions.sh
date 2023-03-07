@@ -92,10 +92,10 @@ curlCheck() {
     docker-compose exec -T php curl -s --max-time 5 --request GET ${@} >/dev/null && echo "OK" || echo "NO"
 }
 
-exec() {
+dockerExecute() {
     writeInfo "Executing docker compose exec ${@}"
     # shellcheck disable=SC2086
-    docker compose exec -t ${@}
+    docker-compose exec -t ${@}
 }
 
 declare -A FUNCTIONS=(
@@ -103,7 +103,7 @@ declare -A FUNCTIONS=(
     ["composer:install"]="composerInstall"
     ["composer:update"]="composerUpdate"
     ["down"]="appShutdown"
-    ["exec"]="exec"
+    ["exec"]="dockerExecute"
     ["isup"]="curlCheck"
     ["help"]="help"
     ["__DEFAULT__"]="app:install"
@@ -123,6 +123,7 @@ declare -A FUNCTION_DESCRIPTIONS=(
 # Map the function names to their descriptions
 declare -A FUNCTION_USAGE=(
     ["isup"]="http://example.com"
+    ["exec"]="<serviceName> <command>"
 )
 
 # Map the function aliases to their base functions
