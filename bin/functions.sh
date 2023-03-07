@@ -87,15 +87,15 @@ appShutdown() {
 }
 
 curlCheck() {
-    writeInfo "Run curl ${CMD}"
+    writeInfo "Run curl ${@}"
     # shellcheck disable=SC2086
-    docker-compose exec php -T curl -s --max-time 5 --request GET ${CMD} >/dev/null && echo "OK" || echo "NO"
+    docker-compose exec php -T curl -s --max-time 5 --request GET ${@} >/dev/null && echo "OK" || echo "NO"
 }
 
 exec() {
-    writeInfo "Executing docker compose exec ${CMD}"
+    writeInfo "Executing docker compose exec ${@}"
     # shellcheck disable=SC2086
-    docker compose exec -t ${CMD}
+    docker compose exec -t ${@}
 }
 
 declare -A FUNCTIONS=(
