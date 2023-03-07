@@ -2,28 +2,41 @@
 
 ### Usage
 
-> Require package to your project (perhaps as dev-dependency)
-> ```bash
-> composer require iorys/run
-> ```
+Require package to your project (perhaps as dev-dependency)
 
-> Copy run-example.sh to your project root and rename it to run
-> ```bash
-> cp vendor/iorys/run/run-example.sh run
-> ```
+```bash
+composer require iorys/run
+```
 
-> Ensure that run is executable
-> ```bash
-> chmod +x run
-> ```
+---
 
-> If you are using run script in your laravel project, you would like to include laravel_functions.sh to your run script
-> ```bash
-> source vendor/iorys/run/bin/laravel_functions.sh
-> ```
-> This will add some useful functions to your run script, like `artisan` and `lara`, which are aliases for `php artisan`.
+Copy run-example.sh to your project root and rename it to run
 
-> Once you have your run script ready, you can run your project by executing `./run` command
+```bash
+cp vendor/iorys/run/run-example.sh run
+```
+
+---
+
+Ensure that run is executable
+
+```bash
+chmod +x run
+```
+
+---
+
+If you are using run script in your laravel project, you would like to include laravel_functions.sh to your run script
+
+```bash
+source vendor/iorys/run/bin/laravel_functions.sh
+```
+
+This will add some useful functions to your run script, like `artisan` and `lara`, which are aliases for `php artisan`.
+
+---
+
+Once you have your run script ready, you can run your project by executing `./run` command
 
 ### Available functions to use in your run script
 
