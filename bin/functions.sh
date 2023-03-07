@@ -83,17 +83,17 @@ composerUpdate() {
 appShutdown() {
     docker-compose down
 
-    writeInfo "Application shutdown successful"
+    echo "Application shutdown successful"
 }
 
 curlCheck() {
-    writeInfo "Run curl ${@}"
+    echo "Run curl ${@}"
     # shellcheck disable=SC2086
     docker-compose exec -T php curl -s --max-time 5 --request GET ${@} >/dev/null && echo "OK" || echo "NO"
 }
 
 dockerExecute() {
-    writeInfo "Executing docker compose exec ${@}"
+    echo "Executing docker compose exec ${@}"
     # shellcheck disable=SC2086
     docker-compose exec -t ${@}
 }
