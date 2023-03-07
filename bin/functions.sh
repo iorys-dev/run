@@ -95,7 +95,7 @@ curlCheck() {
 dockerExecute() {
     echo "Executing docker compose exec ${@}"
     # shellcheck disable=SC2086
-    docker-compose exec -t ${@}
+    docker-compose exec ${@}
 }
 
 declare -A FUNCTIONS=(
