@@ -44,3 +44,4 @@ Once you have your run script ready, you can run your project by executing `./ru
 addCommand (FUNCTION_NAME, FUNCTION_COMMAND, FUNCTION_DESCRIPTION, FUNCTION_USAGE)
 addAlias (FUNCTION_ALIAS_NAME, FUNCTION_BASE_NAME)
 ```
+
