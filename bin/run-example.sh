@@ -1,7 +1,18 @@
 #!/bin/bash
 
-source vendor/iorys/run/bin/functions.sh
-#source vendor/iorys/run/bin/laravel_functions.sh
+declare -A SOURCES=(
+  ["functions"]="vendor/iorys/run/bin/functions.sh"
+  #  ["laravel_functions"]="vendor/iorys/run/bin/laravel_functions.sh"
+)
+
+if [[ ! -d vendor/iorys/run/bin ]]; then
+  docker-compose run --rm php composer update iorys/run
+fi
+
+for key in "${!SOURCES[@]}"; do
+  # shellcheck disable=SC1090
+  source "${SOURCES[$key]}"
+done
 
 appInstall() {
   writeInfo "Create .env"
