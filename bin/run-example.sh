@@ -6,7 +6,13 @@ declare -A SOURCES=(
 )
 
 if [[ ! -d vendor/iorys/run/bin ]]; then
-  docker-compose run --rm php composer update iorys/run
+  TMP_COMPOSER_JSON=$(cat composer.json)
+  TMP_COMPOSER_LOCK=$(cat composer.lock)
+  rm composer.json composer.lock
+  echo '{"repositories": [{"type": "composer","url": "https://iorys-dev.repo.repman.io"}]}' > composer.json
+  docker-compose run --rm php composer require iorys/run
+  echo "${TMP_COMPOSER_JSON}" > composer.json
+  echo "${TMP_COMPOSER_LOCK}" > composer.lock
 fi
 
 for key in "${!SOURCES[@]}"; do
