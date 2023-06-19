@@ -158,7 +158,11 @@ showHelp() {
     echo "Usage: ./run help [function_name]"
     echo "Available functions:"
 
-    for function_name in "${!FUNCTIONS[@]}"; do
+    # Sort the keys
+    IFS=$'\n' sorted_keys=($(sort <<<"${!FUNCTIONS[*]}"))
+    unset IFS
+
+    for function_name in "${sorted_keys[@]}"; do
       if [[ "${function_name}" == "__DEFAULT__" ]]; then
         continue
       fi
