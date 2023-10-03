@@ -32,9 +32,10 @@ writeInfo() {
 
 getHostIp() {
   IP_MATCH='^(192\.168\.)|(([0-9]+\.){3}[0-9]+)'
-  HOST_IP=$(ipconfig.exe | grep -Eo "${IP_MATCH}" | awk '{if ($0 ~ /^192\.168\./) print $0; else a[++i]=$0} END {for (j=1;j<=i;j++) print a[j]}' | head -n1)
 
-  if [ -z "$HOST_IP" ]; then
+  if command -v ipconfig.exe &> /dev/null; then
+    HOST_IP=$(ipconfig.exe | grep -Eo "${IP_MATCH}" | awk '{if ($0 ~ /^192\.168\./) print $0; else a[++i]=$0} END {for (j=1;j<=i;j++) print a[j]}' | head -n1)
+  else
     HOST_IP=$(ifconfig | grep -Eo "${IP_MATCH}" | awk '{if ($0 ~ /^192\.168\./) print $0; else a[++i]=$0} END {for (j=1;j<=i;j++) print a[j]}' | head -n1)
   fi
 
