@@ -69,7 +69,7 @@ printServiceInfo() {
 
   echo "$(pad "${SERVICE_SHORT_NAME^} Container IP" 40 " "): ${PREFIX}${SERVICE_CONTAINER_IP}:${SERVICE_DEFAULT_PORT}"
   echo "$(pad "${SERVICE_SHORT_NAME^} Shared IP   " 40 " "): ${PREFIX}${HOST_IP}:${SERVICE_MATCHED_PORT}"
-  echo "$(pad "${SERVICE_SHORT_NAME^} Localhost   " 40 " "): ${PREFIX}127.0.0.1:${SERVICE_MATCHED_PORT}"
+  echo "$(pad "${SERVICE_SHORT_NAME^} Docker Host " 40 " "): ${PREFIX}host.docker.internal:${SERVICE_MATCHED_PORT}"
   # shellcheck disable=SC2005
   echo "$(pad "" "${TERMINAL_WIDTH}" "-")"
 }
