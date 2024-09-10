@@ -44,7 +44,7 @@ getHostIp() {
 
 getServiceIp() {
   SERVICE_NAME=$1
-  SERVICE_IP=$(docker inspect -f '{{range.NetworkSettings.Networks}}{{.IPAddress}}{{end}}' "$(docker-compose ps -q "${SERVICE_NAME}")" | sed -n '1p')
+  SERVICE_IP=$(docker inspect -f '{{range.NetworkSettings.Networks}}{{.IPAddress}} {{end}}' "$(docker-compose ps -q "${SERVICE_NAME}")" | sed 's/,$//')
   echo "$SERVICE_IP"
 }
 
@@ -67,9 +67,20 @@ printServiceInfo() {
     PREFIX="${5}"
   fi
 
-  echo "$(pad "${SERVICE_SHORT_NAME^} Container IP" 40 " "): ${PREFIX}${SERVICE_CONTAINER_IP}:${SERVICE_DEFAULT_PORT}"
-  echo "$(pad "${SERVICE_SHORT_NAME^} Shared IP   " 40 " "): ${PREFIX}${HOST_IP}:${SERVICE_MATCHED_PORT}"
-  echo "$(pad "${SERVICE_SHORT_NAME^} Docker Host " 40 " "): ${PREFIX}host.docker.internal:${SERVICE_MATCHED_PORT}"
+  if [[ ! -z "${SERVICE_CONTAINER_IP}" ]]; then
+    for ip in ${SERVICE_CONTAINER_IP}; do
+      echo "$(pad "${SERVICE_SHORT_NAME^} Container IP" 40 " "): ${PREFIX}${ip}:${SERVICE_DEFAULT_PORT}"
+    done
+  fi
+
+  if [[ ! -z "${SERVICE_MATCHED_PORT}" ]] && [[ ! -z "${SERVICE_MATCHED_PORT}" ]]; then
+    echo "$(pad "${SERVICE_SHORT_NAME^} Shared IP" 40 " "): ${PREFIX}${HOST_IP}:${SERVICE_MATCHED_PORT}"
+  fi
+
+  if [[ ! -z "${SERVICE_CONTAINER_IP}" ]] && [[ ! -z "${SERVICE_MATCHED_PORT}" ]]; then
+    echo "$(pad "${SERVICE_SHORT_NAME^} Docker Host " 40 " "): ${PREFIX}host.docker.internal:${SERVICE_MATCHED_PORT}"
+  fi
+
   # shellcheck disable=SC2005
   echo "$(pad "" "${TERMINAL_WIDTH}" "-")"
 }
