@@ -44,7 +44,7 @@ getHostIp() {
 
 getServiceIp() {
   SERVICE_NAME=$1
-  SERVICE_IP=$(docker inspect -f '{{range.NetworkSettings.Networks}}{{.IPAddress}} {{end}}' "$(docker-compose ps -q "${SERVICE_NAME}")" | sed 's/,$//')
+  SERVICE_IP=$(docker inspect -f '{{range.NetworkSettings.Networks}}{{.IPAddress}} {{end}}' "$(docker-compose ps -q "${SERVICE_NAME}")" | sed 's/ $//')
   echo "$SERVICE_IP"
 }
 
@@ -52,6 +52,10 @@ getServicePort() {
   SERVICE_NAME=$1
   SERVICE_INTERNAL_PORT=$2
   SERVICE_PORT=$(docker-compose port "${SERVICE_NAME}" "${SERVICE_INTERNAL_PORT}" | sed 's/.*://')
+  # if SERVICE_PORT is 0, then unset it
+  if [ "$SERVICE_PORT" -eq 0 ]; then
+    SERVICE_PORT=""
+  fi
   echo "$SERVICE_PORT"
 }
 
