@@ -87,12 +87,12 @@ printServiceInfo() {
 
 composerInstall() {
   echo "Using container composer"
-  docker-compose run php composer install -n
+  docker-compose run --rm php composer install -n
 }
 
 composerUpdate() {
   echo "Using container composer"
-  docker-compose run php composer update -n
+  docker-compose run --rm php composer update -n
 }
 
 appShutdown() {
@@ -103,7 +103,7 @@ appShutdown() {
 
 curlCheck() {
   echo "Run curl" "$@"
-  docker-compose exec -T php curl -s --max-time 5 --request GET "${@}" >/dev/null && echo "OK" || echo "NO"
+  docker-compose exec -t php curl -s --max-time 5 --request GET "${@}" >/dev/null && echo "OK" || echo "NO"
 }
 
 dockerExecute() {
