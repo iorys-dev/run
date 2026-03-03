@@ -36,6 +36,20 @@ This will add some useful functions to your run script, like `artisan` and `lara
 
 ---
 
+To add Cloudflare Tunnel support to any project, include tunnel_functions.sh:
+
+```bash
+IORYS_RUN_DIR="$(cd "$(dirname "$0")" && pwd)"   # set before sourcing
+source vendor/iorys/run/bin/tunnel_functions.sh
+```
+
+This adds `tunnel`, `ensureTunnel`, and `resolveTunnelDomain` to your run script.
+The project must provide `devops/local/scripts/tunnel-up.sh` and `tunnel-down.sh`.
+
+See [TUNNEL.md](TUNNEL.md) for full integration guide.
+
+---
+
 Once you have your run script ready, you can run your project by executing `./run` command
 
 ### Available functions to use in your run script
