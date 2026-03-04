@@ -203,7 +203,7 @@ INGRESS_ENTRIES=""
 for entry in "${EXPOSED[@]}"; do
     name="${entry%%:*}"; rest="${entry#*:}"; svc="${rest%%:*}"; port="${rest##*:}"
     hostname=$(make_hostname "$name")
-    INGRESS_ENTRIES+="{\"hostname\":\"${hostname}\",\"service\":\"http://${svc}:${port}\",\"originRequest\":{},"
+    INGRESS_ENTRIES+="{\"hostname\":\"${hostname}\",\"service\":\"http://${svc}:${port}\",\"originRequest\":{}},"
 done
 INGRESS_ENTRIES+="{\"service\":\"http_status:404\"}"
 
