@@ -46,6 +46,18 @@ success() { echo -e "${GREEN}✓  ${1}${NC}"; }
 warn()    { echo -e "${YELLOW}⚠  ${1}${NC}"; }
 fail()    { echo -e "${RED}✗  ${1}${NC}"; exit 1; }
 
+# Portable in-place sed
+_sedi() {
+    if sed --version 2>/dev/null | grep -q GNU; then
+        sed -i "$@"
+    else
+        sed -i '' "$@"
+    fi
+}
+
+# bash 4+ required for arrays (macOS ships bash 3.2; fix: brew install bash)
+(( BASH_VERSINFO[0] >= 4 )) || { echo "bash 4+ required. macOS: brew install bash" >&2; exit 1; }
+
 [[ -f "$ENV_FILE" ]] || fail ".env not found at $ENV_FILE"
 set -a; source "$ENV_FILE"; set +a
 
@@ -93,7 +105,10 @@ COMPOSE_JSON=$(docker compose -f "${PROJECT_ROOT}/docker-compose.yml" \
 #     cf_expose: "true"
 #     cf_expose_name: "app"   # optional — defaults to the docker service name
 #     cf_expose_port: "80"    # optional — defaults to PORT env var, then 80
-mapfile -t EXPOSED < <(echo "$COMPOSE_JSON" | jq -r '
+EXPOSED=()
+while IFS= read -r _line; do
+    [[ -n "$_line" ]] && EXPOSED+=("$_line")
+done < <(echo "$COMPOSE_JSON" | jq -r '
   .services | to_entries[]
   | .key as $svc
   | (.value.labels // {}) as $labels
@@ -158,7 +173,7 @@ cf_api() {
 update_env() {
     local key="$1" value="$2"
     if grep -q "^${key}=" "$ENV_FILE" 2>/dev/null; then
-        sed -i "s|^${key}=.*|${key}=${value}|" "$ENV_FILE"
+        _sedi "s|^${key}=.*|${key}=${value}|" "$ENV_FILE"
     else
         echo "${key}=${value}" >> "$ENV_FILE"
     fi
@@ -232,14 +247,14 @@ create_or_update_dns() {
     fi
 }
 
-declare -A DNS_RECORD_IDS
 for entry in "${EXPOSED[@]}"; do
     name="${entry%%:*}"; rest="${entry#*:}"; svc="${rest%%:*}"
     hostname=$(make_hostname "$name")
     info "Creating DNS CNAME ${hostname}..."
     dns_id=$(create_or_update_dns "${hostname}")
-    DNS_RECORD_IDS["$name"]="$dns_id"
-    success "DNS record ready (${dns_id})"
+    key=$(env_key_for_name "$name")
+    update_env "$key" "$dns_id"
+    success "DNS record ready: ${hostname} (${dns_id})"
 done
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -248,10 +263,6 @@ update_env "APP_NAMESPACE"           "$APP_NAMESPACE"
 update_env "APP_PROJECT"             "$APP_PROJECT"
 update_env "CLOUDFLARE_TUNNEL_ID"    "$TUNNEL_ID"
 update_env "CLOUDFLARE_TUNNEL_TOKEN" "$TUNNEL_TOKEN"
-for name in "${!DNS_RECORD_IDS[@]}"; do
-    key=$(env_key_for_name "$name")
-    update_env "$key" "${DNS_RECORD_IDS[$name]}"
-done
 success "Saved"
 
 echo ""

@@ -37,7 +37,28 @@ warn()    { echo -e "${YELLOW}⚠  ${1}${NC}"; }
 fail()    { echo -e "${RED}✗  ${1}${NC}"; exit 1; }
 header()  { echo -e "\n${BOLD}${1}${NC}"; echo -e "$(printf '─%.0s' $(seq 1 ${#1}))"; }
 
+# Portable in-place sed
+_sedi() {
+    if sed --version 2>/dev/null | grep -q GNU; then
+        sed -i "$@"
+    else
+        sed -i '' "$@"
+    fi
+}
+
+# Insert text before first line containing pattern (avoids GNU/BSD sed -i insert syntax differences)
+_insert_before() {
+    local pattern="$1" text="$2" file="$3" tmp
+    tmp="${file}.tmp.$$"
+    awk -v pat="$pattern" -v txt="$text" '
+        !done && index($0, pat) { print txt; done=1 }
+        { print }
+    ' "$file" > "$tmp" && mv "$tmp" "$file"
+}
+
 # ── Module registry ───────────────────────────────────────────────────────────
+# bash 4+ required for associative arrays (macOS ships bash 3.2; fix: brew install bash)
+(( BASH_VERSINFO[0] >= 4 )) || { echo "bash 4+ required. macOS: brew install bash" >&2; exit 1; }
 # Format: name → description|filename
 declare -A MODULE_FILE=(
     [functions]="functions.sh"
@@ -291,12 +312,10 @@ cmd_module_enable() {
 
     if _block_exists; then
         # Insert before BLOCK_END
-        sed -i "/${BLOCK_END////\\/}/i\\${source_line}" "$RUN_FILE"
+        _insert_before "${BLOCK_END}" "${source_line}" "$RUN_FILE"
     else
         # Append a new managed block just before callCommand
-        local block
-        block="$(printf '\n%s\n%s\n%s\n' "${BLOCK_BEGIN}" "${source_line}" "${BLOCK_END}")"
-        sed -i "/callCommand/i\\${BLOCK_BEGIN}\\n${source_line}\\n${BLOCK_END}\\n" "$RUN_FILE"
+        _insert_before "callCommand" "$(printf '%s\n%s\n%s\n' "${BLOCK_BEGIN}" "${source_line}" "${BLOCK_END}")" "$RUN_FILE"
     fi
 
     success "Module '${name}' enabled."
@@ -315,7 +334,7 @@ cmd_module_disable() {
         return
     fi
 
-    sed -i "/ # @module ${name}$/d" "$RUN_FILE"
+    _sedi "/ # @module ${name}$/d" "$RUN_FILE"
     success "Module '${name}' disabled."
 }
 
@@ -337,7 +356,7 @@ cmd_add_command() {
 
     # Insert before callCommand "$@"
     if grep -q 'callCommand' "$RUN_FILE"; then
-        sed -i "/callCommand/i\\${line}" "$RUN_FILE"
+        _insert_before "callCommand" "${line}" "$RUN_FILE"
     else
         echo "$line" >> "$RUN_FILE"
     fi
@@ -359,7 +378,7 @@ cmd_remove_command() {
         return
     fi
 
-    sed -i "/addCommand \"${cli}\"/d" "$RUN_FILE"
+    _sedi "/addCommand \"${cli}\"/d" "$RUN_FILE"
     success "Command '${cli}' removed."
 }
 

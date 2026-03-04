@@ -21,6 +21,15 @@ success() { echo -e "${GREEN}✓  ${1}${NC}"; }
 warn()    { echo -e "${YELLOW}⚠  ${1}${NC}"; }
 fail()    { echo -e "${RED}✗  ${1}${NC}"; exit 1; }
 
+# Portable in-place sed
+_sedi() {
+    if sed --version 2>/dev/null | grep -q GNU; then
+        sed -i "$@"
+    else
+        sed -i '' "$@"
+    fi
+}
+
 [[ -f "$ENV_FILE" ]] || fail ".env not found at $ENV_FILE"
 set -a; source "$ENV_FILE"; set +a
 
@@ -37,7 +46,7 @@ cf_api() {
     curl "${args[@]}"
 }
 
-remove_env() { sed -i "/^${1}=/d" "$ENV_FILE"; }
+remove_env() { _sedi "/^${1}=/d" "$ENV_FILE"; }
 
 echo ""
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
@@ -88,7 +97,7 @@ fi
 info "Cleaning tunnel config from .env..."
 remove_env "CLOUDFLARE_TUNNEL_ID"
 remove_env "CLOUDFLARE_TUNNEL_TOKEN"
-sed -i "/^CLOUDFLARE_DNS_RECORD_/d" "$ENV_FILE"
+_sedi "/^CLOUDFLARE_DNS_RECORD_/d" "$ENV_FILE"
 success "Done"
 
 echo ""

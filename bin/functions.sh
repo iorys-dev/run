@@ -3,6 +3,24 @@ set -e
 
 TERMINAL_WIDTH=$(tput cols)
 
+# ── Portable in-place sed (GNU: -i / BSD macOS: -i '') ────────────────────────
+_sedi() {
+  if sed --version 2>/dev/null | grep -q GNU; then
+    sed -i "$@"
+  else
+    sed -i '' "$@"
+  fi
+}
+
+# ── Insert text before first line containing pattern (awk, avoids GNU/BSD sed) 
+_insert_before() {
+  local pattern="$1" text="$2" file="$3" tmp
+  tmp="${file}.tmp.$$"
+  awk -v pat="$pattern" -v txt="$text" '
+    !done && index($0, pat) { print txt; done=1 }
+    { print }
+  ' "$file" > "$tmp" && mv "$tmp" "$file"
+}
 pad() {
   s=$1
   len=$2
