@@ -41,7 +41,41 @@ cp vendor/iorys/run/.env.example .env   # fill in CF_API_TOKEN and CF_ACCOUNT_ID
 chmod +x run
 ```
 
-Then source the modules you need at the top of your `run` script.
+Or use the interactive manager to scaffold a clean run script:
+
+```bash
+vendor/iorys/run/bin/iorys-run init
+```
+
+---
+
+## Run Script Manager
+
+`bin/iorys-run` is an interactive CLI that manages the `run` script in your project.
+
+```
+vendor/iorys/run/bin/iorys-run <command>
+```
+
+| Command | Description |
+|---------|-------------|
+| `init [--force]` | Scaffold a new `run` script (interactive) |
+| `status` | Show version, enabled modules, registered commands |
+| `module list` | List all available modules and their status |
+| `module enable <name>` | Add a module source line to the managed block |
+| `module disable <name>` | Remove a module from the managed block |
+| `add-command <cli> <fn> <desc> [usage]` | Append an `addCommand` registration |
+| `remove-command <cli>` | Remove a registered command |
+| `update` | Run `composer update iorys/run` |
+
+Modules are tracked in your `run` script using a managed block with `# @module <name>` markers:
+
+```bash
+#### iorys/run:modules:begin ####
+source vendor/iorys/run/bin/functions.sh       # @module functions
+source vendor/iorys/run/bin/tunnel_functions.sh # @module tunnel
+#### iorys/run:modules:end ####
+```
 
 ---
 

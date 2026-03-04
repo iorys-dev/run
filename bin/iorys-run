@@ -1,0 +1,443 @@
+#!/usr/bin/env bash
+# ──────────────────────────────────────────────────────────────────────────────
+# iorys-run — project run script manager
+#
+# Usage (from project root):
+#   ./vendor/iorys/run/bin/iorys-run <command> [options]
+#
+# Commands:
+#   init                          Scaffold a new run script for this project
+#   status                        Show modules, commands, version
+#   module list                   List available modules and their status
+#   module enable  <name>         Add a module to the run script
+#   module disable <name>         Remove a module from the run script
+#   add-command    <cli> <fn> <desc> [usage]   Register a new command stub
+#   remove-command <cli>          Remove a registered command
+#   update                        Update iorys/run to the latest compatible version
+#   help                          Show this help
+# ──────────────────────────────────────────────────────────────────────────────
+set -euo pipefail
+
+# ── Paths ─────────────────────────────────────────────────────────────────────
+BIN_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PKG_DIR="$(cd "${BIN_DIR}/.." && pwd)"
+# Installed at vendor/iorys/run/bin/ → 4 levels up = project root.
+# Override with IORYS_PROJECT_ROOT env var when running from source during dev.
+PROJECT_ROOT="${IORYS_PROJECT_ROOT:-$(cd "${BIN_DIR}/../../../.." && pwd)}"
+RUN_FILE="${PROJECT_ROOT}/run"
+
+# ── Colors ────────────────────────────────────────────────────────────────────
+RED='\033[0;31m';  GREEN='\033[0;32m'; YELLOW='\033[1;33m'
+CYAN='\033[0;36m'; BOLD='\033[1m';     NC='\033[0m'
+BCYAN='\033[1;36m'
+
+info()    { echo -e "${CYAN}→  ${1}${NC}"; }
+success() { echo -e "${GREEN}✓  ${1}${NC}"; }
+warn()    { echo -e "${YELLOW}⚠  ${1}${NC}"; }
+fail()    { echo -e "${RED}✗  ${1}${NC}"; exit 1; }
+header()  { echo -e "\n${BOLD}${1}${NC}"; echo -e "$(printf '─%.0s' $(seq 1 ${#1}))"; }
+
+# ── Module registry ───────────────────────────────────────────────────────────
+# Format: name → description|filename
+declare -A MODULE_FILE=(
+    [functions]="functions.sh"
+    [tunnel]="tunnel_functions.sh"
+    [laravel]="laravel_functions.sh"
+)
+declare -A MODULE_DESC=(
+    [functions]="Core helpers: writeInfo, addCommand, callCommand, writeSuccess, …"
+    [tunnel]="Cloudflare Tunnel: tunnel up/down/recreate/status, ensureTunnel"
+    [laravel]="Laravel shortcuts: artisan, migrate, composer (run --rm php)"
+)
+MODULE_ORDER=(functions tunnel laravel)
+
+# Marker lines in the run script
+BLOCK_BEGIN="#### iorys/run:modules:begin ####"
+BLOCK_END="#### iorys/run:modules:end ####"
+
+# ── Version ───────────────────────────────────────────────────────────────────
+_pkg_version() {
+    # When running from vendor, read from installed.json
+    local v
+    v=$(grep -A3 '"name": "iorys/run"' "${PROJECT_ROOT}/vendor/composer/installed.json" 2>/dev/null \
+        | grep '"version"' | head -1 | grep -o '"[0-9][^"]*"' | tr -d '"' 2>/dev/null)
+    if [[ -n "$v" ]]; then echo "$v"; return; fi
+    # Fallback: git tag in the package dir itself (dev workflow)
+    git -C "${PKG_DIR}" describe --tags --abbrev=0 2>/dev/null || echo "dev"
+}
+
+_installed_version() {
+    grep -A3 '"name": "iorys/run"' "${PROJECT_ROOT}/vendor/composer/installed.json" 2>/dev/null \
+        | grep '"version"' | head -1 | grep -o '"[0-9][^"]*"' | tr -d '"' 2>/dev/null \
+        || echo "not installed"
+}
+
+# ── Module helpers ────────────────────────────────────────────────────────────
+_block_exists() {
+    grep -qF "$BLOCK_BEGIN" "$RUN_FILE" 2>/dev/null
+}
+
+# Returns list of currently enabled module names from the managed block
+_enabled_modules() {
+    [[ ! -f "$RUN_FILE" ]] && return
+    sed -n "/${BLOCK_BEGIN}/,/${BLOCK_END}/p" "$RUN_FILE" 2>/dev/null \
+        | grep '# @module ' | sed 's/.*# @module //'
+}
+
+_module_is_enabled() {
+    _enabled_modules | grep -qx "$1" 2>/dev/null
+}
+
+# ── Composer runner ───────────────────────────────────────────────────────────
+_run_composer() {
+    if command -v composer >/dev/null 2>&1; then
+        composer "$@"
+    elif command -v docker >/dev/null 2>&1; then
+        local dc="docker compose"
+        command -v docker-compose >/dev/null 2>&1 && dc="docker-compose"
+        ${dc} exec php composer "$@" 2>/dev/null \
+            || docker run --rm -v "${PROJECT_ROOT}:/app" -w /app composer:2 "$@"
+    else
+        fail "Cannot run composer — install it or have Docker running."
+    fi
+}
+
+# ─────────────────────────────────────────────────────────────────────────────
+# COMMAND: init
+# ─────────────────────────────────────────────────────────────────────────────
+cmd_init() {
+    local force=0
+    [[ "${1:-}" == "--force" || "${1:-}" == "-f" ]] && force=1
+
+    if [[ -f "$RUN_FILE" && $force -eq 0 ]]; then
+        warn "run script already exists at ${RUN_FILE}"
+        echo -e "  Use ${CYAN}iorys-run init --force${NC} to overwrite."
+        exit 1
+    fi
+
+    echo -e "\n${BCYAN}╔══════════════════════════════════════════╗"
+    echo -e "║      iorys-run — init new run script     ║"
+    echo -e "╚══════════════════════════════════════════╝${NC}\n"
+
+    # ── Gather inputs ──────────────────────────────────────────────────────
+    local default_project
+    default_project=$(basename "$PROJECT_ROOT")
+    read -r -p "  APP_PROJECT [${default_project}]: " APP_PROJECT
+    APP_PROJECT="${APP_PROJECT:-${default_project}}"
+
+    echo ""
+    echo -e "  ${BOLD}Available modules:${NC}"
+    for name in "${MODULE_ORDER[@]}"; do
+        printf "    %-12s %s\n" "$name" "${MODULE_DESC[$name]}"
+    done
+    echo ""
+    echo -e "  ${CYAN}functions${NC} is always included."
+    read -r -p "  Additional modules (space-separated, e.g. 'tunnel laravel'): " _extra_input
+    local -a selected_modules=(functions)
+    for m in ${_extra_input}; do
+        [[ "${MODULE_FILE[$m]+_}" ]] || { warn "Unknown module '${m}' — skipping."; continue; }
+        [[ "$m" == "functions" ]] && continue
+        selected_modules+=("$m")
+    done
+
+    echo ""
+    read -r -p "  DC override (leave empty for auto-detect) []: " DC_OVERRIDE
+
+    # ── Generate run file ──────────────────────────────────────────────────
+    info "Generating ${RUN_FILE}..."
+
+    local sources_block=""
+    for m in "${selected_modules[@]}"; do
+        sources_block+="source vendor/iorys/run/bin/${MODULE_FILE[$m]}$(printf '%-*s' $((40 - ${#MODULE_FILE[$m]})) '') # @module ${m}\n"
+    done
+
+    local dc_block=""
+    if [[ -n "$DC_OVERRIDE" ]]; then
+        dc_block="DC=\"${DC_OVERRIDE}\""
+    else
+        dc_block='if command -v docker >/dev/null 2>&1 && docker compose version >/dev/null 2>&1; then
+    DC="docker compose"
+elif command -v docker-compose >/dev/null 2>&1; then
+    DC="docker-compose"
+else
+    echo "docker compose not found"; exit 1
+fi'
+    fi
+
+    cat > "$RUN_FILE" <<RUNSCRIPT
+#!/usr/bin/env bash
+# ──────────────────────────────────────────────────────────────────────────────
+# run — ${APP_PROJECT} dev CLI
+# Managed modules can be toggled with: vendor/iorys/run/bin/iorys-run module enable/disable <name>
+# ──────────────────────────────────────────────────────────────────────────────
+set -euo pipefail
+cd "\$(dirname "\$0")"
+
+# ── Load .env ─────────────────────────────────────────────────────────────────
+if [[ -f .env ]]; then
+    set -a; source .env; set +a
+fi
+
+# ── Bootstrap iorys/run ───────────────────────────────────────────────────────
+if [[ ! -d vendor/iorys/run/bin ]]; then
+    echo "Installing iorys/run..."
+    composer install --no-interaction 2>/dev/null \\
+        || docker-compose run --rm php composer install --no-interaction
+fi
+
+${BLOCK_BEGIN}
+$(echo -e "${sources_block}")${BLOCK_END}
+
+IORYS_RUN_DIR="\$PWD"
+
+# ── Docker Compose ────────────────────────────────────────────────────────────
+${dc_block}
+
+APP_PROJECT="${APP_PROJECT}"
+
+# ── Custom commands ───────────────────────────────────────────────────────────
+# Define your project-specific functions here, then register with addCommand.
+
+# appInstall() {
+#     writeInfo "First-time install..."
+#     bringUpServices
+# }
+# addCommand "install" "appInstall" "First-time setup"
+
+callCommand "\$@"
+RUNSCRIPT
+
+    chmod +x "$RUN_FILE"
+    success "Created ${RUN_FILE}"
+    echo ""
+    echo -e "  Enabled modules : ${CYAN}${selected_modules[*]}${NC}"
+    echo -e "  Next steps:"
+    echo -e "    1. Add your commands above ${CYAN}callCommand \"\\\$@\"${NC}"
+    echo -e "    2. Run ${CYAN}./run help${NC} to verify"
+    echo ""
+}
+
+# ─────────────────────────────────────────────────────────────────────────────
+# COMMAND: status
+# ─────────────────────────────────────────────────────────────────────────────
+cmd_status() {
+    header "iorys-run status"
+    printf "  %-22s %s\n" "Package version:"  "$(_pkg_version)"
+    printf "  %-22s %s\n" "Installed version:" "$(_installed_version)"
+    printf "  %-22s %s\n" "Project root:"     "$PROJECT_ROOT"
+    printf "  %-22s %s\n" "Run script:"       "${RUN_FILE} $( [[ -f "$RUN_FILE" ]] && echo '(exists)' || echo '(missing)')"
+    echo ""
+
+    if [[ ! -f "$RUN_FILE" ]]; then
+        warn "No run script found — run: iorys-run init"
+        return
+    fi
+
+    header "Modules"
+    for name in "${MODULE_ORDER[@]}"; do
+        if _module_is_enabled "$name"; then
+            printf "  ${GREEN}✓${NC}  %-14s %s\n" "$name" "${MODULE_DESC[$name]}"
+        else
+            printf "  ${RED}✗${NC}  %-14s %s\n" "$name" "${MODULE_DESC[$name]}"
+        fi
+    done
+
+    echo ""
+    header "Registered commands (addCommand)"
+    local found=0
+    while IFS= read -r line; do
+        # Match: addCommand "cli-name" "fn" "description"
+        if [[ "$line" =~ ^[[:space:]]*addCommand[[:space:]]+(\"[^\"]+\"|\'[^\']+\') ]]; then
+            echo "  $line" | sed 's/^[[:space:]]*/  /'
+            found=1
+        fi
+    done < "$RUN_FILE"
+    [[ $found -eq 0 ]] && echo "  (none)"
+    echo ""
+}
+
+# ─────────────────────────────────────────────────────────────────────────────
+# COMMAND: module list
+# ─────────────────────────────────────────────────────────────────────────────
+cmd_module_list() {
+    header "Available modules"
+    for name in "${MODULE_ORDER[@]}"; do
+        if _module_is_enabled "$name"; then
+            status_str="${GREEN}enabled${NC}"
+        else
+            status_str="${RED}disabled${NC}"
+        fi
+        printf "  %-14s [" "$name"
+        echo -e "${status_str}]  ${MODULE_DESC[$name]}"
+    done
+    echo ""
+}
+
+# ─────────────────────────────────────────────────────────────────────────────
+# COMMAND: module enable <name>
+# ─────────────────────────────────────────────────────────────────────────────
+cmd_module_enable() {
+    local name="${1:-}"
+    [[ -z "$name" ]] && fail "Usage: iorys-run module enable <name>"
+    [[ "${MODULE_FILE[$name]+_}" ]] || fail "Unknown module '${name}'. Run: iorys-run module list"
+    [[ -f "$RUN_FILE" ]] || fail "No run script found. Run: iorys-run init"
+
+    if _module_is_enabled "$name"; then
+        warn "Module '${name}' is already enabled."
+        return
+    fi
+
+    local source_line="source vendor/iorys/run/bin/${MODULE_FILE[$name]}$(printf '%-*s' $((40 - ${#MODULE_FILE[$name]})) '') # @module ${name}"
+
+    if _block_exists; then
+        # Insert before BLOCK_END
+        sed -i "/${BLOCK_END////\\/}/i\\${source_line}" "$RUN_FILE"
+    else
+        # Append a new managed block just before callCommand
+        local block
+        block="$(printf '\n%s\n%s\n%s\n' "${BLOCK_BEGIN}" "${source_line}" "${BLOCK_END}")"
+        sed -i "/callCommand/i\\${BLOCK_BEGIN}\\n${source_line}\\n${BLOCK_END}\\n" "$RUN_FILE"
+    fi
+
+    success "Module '${name}' enabled."
+}
+
+# ─────────────────────────────────────────────────────────────────────────────
+# COMMAND: module disable <name>
+# ─────────────────────────────────────────────────────────────────────────────
+cmd_module_disable() {
+    local name="${1:-}"
+    [[ -z "$name" ]] && fail "Usage: iorys-run module disable <name>"
+    [[ -f "$RUN_FILE" ]] || fail "No run script found."
+
+    if ! _module_is_enabled "$name"; then
+        warn "Module '${name}' is not enabled."
+        return
+    fi
+
+    sed -i "/ # @module ${name}$/d" "$RUN_FILE"
+    success "Module '${name}' disabled."
+}
+
+# ─────────────────────────────────────────────────────────────────────────────
+# COMMAND: add-command <cli> <fn> <description> [usage]
+# ─────────────────────────────────────────────────────────────────────────────
+cmd_add_command() {
+    local cli="${1:-}"  fn="${2:-}"  desc="${3:-}"  usage="${4:-}"
+    [[ -z "$cli" || -z "$fn" || -z "$desc" ]] && fail 'Usage: iorys-run add-command <cli-name> <bash-fn> "description" ["usage"]'
+    [[ -f "$RUN_FILE" ]] || fail "No run script found."
+
+    if grep -q "addCommand \"${cli}\"" "$RUN_FILE" 2>/dev/null; then
+        warn "Command '${cli}' already registered in run script."
+        return
+    fi
+
+    local line="addCommand \"${cli}\" \"${fn}\" \"${desc}\""
+    [[ -n "$usage" ]] && line="${line} \"${usage}\""
+
+    # Insert before callCommand "$@"
+    if grep -q 'callCommand' "$RUN_FILE"; then
+        sed -i "/callCommand/i\\${line}" "$RUN_FILE"
+    else
+        echo "$line" >> "$RUN_FILE"
+    fi
+
+    success "Command '${cli}' registered."
+    echo -e "  Don't forget to define the ${CYAN}${fn}()${NC} function in your run script."
+}
+
+# ─────────────────────────────────────────────────────────────────────────────
+# COMMAND: remove-command <cli>
+# ─────────────────────────────────────────────────────────────────────────────
+cmd_remove_command() {
+    local cli="${1:-}"
+    [[ -z "$cli" ]] && fail "Usage: iorys-run remove-command <cli-name>"
+    [[ -f "$RUN_FILE" ]] || fail "No run script found."
+
+    if ! grep -q "addCommand \"${cli}\"" "$RUN_FILE" 2>/dev/null; then
+        warn "Command '${cli}' not found in run script."
+        return
+    fi
+
+    sed -i "/addCommand \"${cli}\"/d" "$RUN_FILE"
+    success "Command '${cli}' removed."
+}
+
+# ─────────────────────────────────────────────────────────────────────────────
+# COMMAND: update
+# ─────────────────────────────────────────────────────────────────────────────
+cmd_update() {
+    [[ -f "${PROJECT_ROOT}/composer.json" ]] || fail "No composer.json found at ${PROJECT_ROOT}"
+    info "Updating iorys/run..."
+    cd "$PROJECT_ROOT"
+    _run_composer update iorys/run --no-interaction
+    success "iorys/run updated to $(_installed_version)"
+}
+
+# ─────────────────────────────────────────────────────────────────────────────
+# COMMAND: help
+# ─────────────────────────────────────────────────────────────────────────────
+cmd_help() {
+    echo ""
+    echo -e "${BCYAN}╔══════════════════════════════════════════════════════════╗"
+    echo -e "║              iorys-run — run script manager              ║"
+    echo -e "╠══════════════════════════════════════════════════════════╣"
+    local _v; _v="$(_pkg_version)"
+    printf "║  Version: %-47s║\n" "${_v}"
+    echo -e "╚══════════════════════════════════════════════════════════╝${NC}"
+    echo ""
+    echo -e "  ${BOLD}Usage:${NC}  ./vendor/iorys/run/bin/iorys-run <command> [args]"
+    echo ""
+    echo -e "  ${CYAN}Setup${NC}"
+    echo "    init [--force]                    Scaffold a new run script"
+    echo "    status                            Show modules, commands, version"
+    echo ""
+    echo -e "  ${CYAN}Module management${NC}"
+    echo "    module list                       List available modules"
+    echo "    module enable  <name>             Add a module to the run script"
+    echo "    module disable <name>             Remove a module"
+    echo ""
+    echo -e "  ${CYAN}Command management${NC}"
+    printf "    add-command    %-22s Register a command stub\n" '<cli> <fn> <desc> [usage]'
+    echo "    remove-command <cli>              Remove a registered command"
+    echo ""
+    echo -e "  ${CYAN}Maintenance${NC}"
+    echo "    update                            Update iorys/run via composer"
+    echo ""
+    echo -e "  ${CYAN}Available modules:${NC}"
+    for name in "${MODULE_ORDER[@]}"; do
+        printf "    %-14s %s\n" "$name" "${MODULE_DESC[$name]}"
+    done
+    echo ""
+    echo -e "  ${CYAN}Module marker block (in run script):${NC}"
+    echo "    ${BLOCK_BEGIN}"
+    echo "    source vendor/iorys/run/bin/functions.sh       # @module functions"
+    echo "    source vendor/iorys/run/bin/tunnel_functions.sh# @module tunnel"
+    echo "    ${BLOCK_END}"
+    echo ""
+}
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Dispatcher
+# ─────────────────────────────────────────────────────────────────────────────
+CMD="${1:-help}"
+shift || true
+
+case "$CMD" in
+    init)             cmd_init "$@" ;;
+    status)           cmd_status ;;
+    module)
+        SUB="${1:-list}"; shift || true
+        case "$SUB" in
+            list)    cmd_module_list ;;
+            enable)  cmd_module_enable "$@" ;;
+            disable) cmd_module_disable "$@" ;;
+            *)       fail "Unknown module sub-command: ${SUB}. Use list|enable|disable" ;;
+        esac
+        ;;
+    add-command)      cmd_add_command "$@" ;;
+    remove-command)   cmd_remove_command "$@" ;;
+    update)           cmd_update ;;
+    help|--help|-h)   cmd_help ;;
+    *)                fail "Unknown command: ${CMD}. Run: iorys-run help" ;;
+esac

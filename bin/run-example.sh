@@ -1,4 +1,13 @@
 #!/bin/bash
+# ──────────────────────────────────────────────────────────────────────────────
+# run-example.sh — Manual reference template for an iorys/run project run script
+#
+# For new projects, prefer the interactive scaffold instead:
+#   vendor/iorys/run/bin/iorys-run init
+#
+# To manage modules and commands in an existing run script:
+#   vendor/iorys/run/bin/iorys-run help
+# ──────────────────────────────────────────────────────────────────────────────
 
 declare -A SOURCES=(
   ["functions"]="vendor/iorys/run/bin/functions.sh"
