@@ -135,9 +135,12 @@ echo "━━━━━━━━━━━━━━━━━━━━━━━━�
 echo ""
 
 if [[ -n "${CLOUDFLARE_TUNNEL_ID:-}" && -n "${CLOUDFLARE_TUNNEL_TOKEN:-}" ]]; then
-    warn "Tunnel already configured (ID: ${CLOUDFLARE_TUNNEL_ID})"
-    echo "  Run './run tunnel down' first to recreate."
-    exit 0
+    info "Tunnel already configured — syncing ingress to current labels..."
+    TUNNEL_ID="${CLOUDFLARE_TUNNEL_ID}"
+    TUNNEL_TOKEN="${CLOUDFLARE_TUNNEL_TOKEN}"
+    _SKIP_PROVISION=true
+else
+    _SKIP_PROVISION=false
 fi
 
 # ── Cloudflare API helper ─────────────────────────────────────────────────────
@@ -167,30 +170,32 @@ ZONE_ID=$(cf_api GET "/zones?name=iorys.dev" | jq -r '.result[0].id // empty')
 [[ -n "$ZONE_ID" ]] || fail "Could not find zone ID — check CF_API_TOKEN permissions."
 success "Zone ID: ${ZONE_ID}"
 
-# ══════════════════════════════════════════════════════════════════════════════
-info "Checking for existing tunnel '${TUNNEL_NAME}'..."
-EXISTING_ID=$(cf_api GET "/accounts/${CF_ACCOUNT_ID}/cfd_tunnel?name=${TUNNEL_NAME}&is_deleted=false" \
-    | jq -r '.result[0].id // empty')
+if [[ "$_SKIP_PROVISION" == "false" ]]; then
+    # ══════════════════════════════════════════════════════════════════════════════
+    info "Checking for existing tunnel '${TUNNEL_NAME}'..."
+    EXISTING_ID=$(cf_api GET "/accounts/${CF_ACCOUNT_ID}/cfd_tunnel?name=${TUNNEL_NAME}&is_deleted=false" \
+        | jq -r '.result[0].id // empty')
 
-if [[ -n "$EXISTING_ID" ]]; then
-    warn "Found existing tunnel (${EXISTING_ID}) — reusing."
-    TUNNEL_ID="$EXISTING_ID"
-else
-    info "Creating tunnel '${TUNNEL_NAME}'..."
-    TUNNEL_SECRET=$(openssl rand -base64 32)
-    CREATE_RESP=$(cf_api POST "/accounts/${CF_ACCOUNT_ID}/cfd_tunnel" \
-        "{\"name\":\"${TUNNEL_NAME}\",\"tunnel_secret\":\"${TUNNEL_SECRET}\",\"config_src\":\"cloudflare\"}")
-    TUNNEL_ID=$(echo "$CREATE_RESP" | jq -r '.result.id // empty')
-    [[ -n "$TUNNEL_ID" ]] || fail "Failed to create tunnel:\n$(echo "$CREATE_RESP" | jq .)"
-    success "Tunnel created: ${TUNNEL_ID}"
+    if [[ -n "$EXISTING_ID" ]]; then
+        warn "Found existing tunnel (${EXISTING_ID}) — reusing."
+        TUNNEL_ID="$EXISTING_ID"
+    else
+        info "Creating tunnel '${TUNNEL_NAME}'..."
+        TUNNEL_SECRET=$(openssl rand -base64 32)
+        CREATE_RESP=$(cf_api POST "/accounts/${CF_ACCOUNT_ID}/cfd_tunnel" \
+            "{\"name\":\"${TUNNEL_NAME}\",\"tunnel_secret\":\"${TUNNEL_SECRET}\",\"config_src\":\"cloudflare\"}")
+        TUNNEL_ID=$(echo "$CREATE_RESP" | jq -r '.result.id // empty')
+        [[ -n "$TUNNEL_ID" ]] || fail "Failed to create tunnel:\n$(echo "$CREATE_RESP" | jq .)"
+        success "Tunnel created: ${TUNNEL_ID}"
+    fi
+
+    # ══════════════════════════════════════════════════════════════════════════════
+    info "Fetching tunnel token..."
+    TOKEN_RESP=$(cf_api GET "/accounts/${CF_ACCOUNT_ID}/cfd_tunnel/${TUNNEL_ID}/token")
+    TUNNEL_TOKEN=$(echo "$TOKEN_RESP" | jq -r '.result // empty')
+    [[ -n "$TUNNEL_TOKEN" ]] || fail "Failed to get tunnel token:\n$(echo "$TOKEN_RESP" | jq .)"
+    success "Token acquired"
 fi
-
-# ══════════════════════════════════════════════════════════════════════════════
-info "Fetching tunnel token..."
-TOKEN_RESP=$(cf_api GET "/accounts/${CF_ACCOUNT_ID}/cfd_tunnel/${TUNNEL_ID}/token")
-TUNNEL_TOKEN=$(echo "$TOKEN_RESP" | jq -r '.result // empty')
-[[ -n "$TUNNEL_TOKEN" ]] || fail "Failed to get tunnel token:\n$(echo "$TOKEN_RESP" | jq .)"
-success "Token acquired"
 
 # ══════════════════════════════════════════════════════════════════════════════
 info "Configuring ingress rules..."

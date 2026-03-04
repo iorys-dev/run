@@ -38,14 +38,19 @@ resolveTunnelDomain() {
     fi
 }
 
-# ── Auto-provision tunnel if credentials present but no token yet ──────────────
-# Call in your `up` / `install` commands to make tunnel setup transparent.
-# Skips silently if CF_API_TOKEN / CF_ACCOUNT_ID are not set.
+# ── Ensure tunnel is provisioned and ingress is in sync ──────────────────────────────
+# Call in your `up` / `install` commands.
+# - If CF creds are absent: skips silently (tunnel feature is opt-in)
+# - If tunnel not yet created: provisions a new one
+# - If tunnel already exists: syncs ingress rules to match current labels
 ensureTunnel() {
-    [[ -n "${CLOUDFLARE_TUNNEL_TOKEN:-}" ]] && return 0
     [[ -z "${CF_API_TOKEN:-}" || -z "${CF_ACCOUNT_ID:-}" ]] && return 0
 
-    echo -e "\033[0;36m→  Cloudflare Tunnel not configured — creating one...\033[0m"
+    if [[ -z "${CLOUDFLARE_TUNNEL_TOKEN:-}" ]]; then
+        echo -e "\033[0;36m→  Cloudflare Tunnel not configured — creating one...\033[0m"
+    else
+        echo -e "\033[0;36m→  Syncing Cloudflare Tunnel ingress...\033[0m"
+    fi
     bash "${_IORYS_TUNNEL_BIN}/tunnel-up.sh"
     set -a; source "${IORYS_RUN_DIR}/.env"; set +a
 }
