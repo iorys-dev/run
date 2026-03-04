@@ -61,13 +61,39 @@ COMPOSE_JSON=$(docker compose -f "${PROJECT_ROOT}/docker-compose.yml" \
     --project-directory "${PROJECT_ROOT}" config --format json 2>/dev/null) \
     || fail "Failed to parse docker-compose.yml — is Docker running?"
 
-# Each element: "service_name:port"
+# Each element: "exposed_name:service_name:port"
+# Two label formats are supported:
+#
+#   Indexed (multiple exposes per service):
+#     cf_expose_0_name: "app"       cf_expose_0_port: "80"
+#     cf_expose_1_name: "app-api"   cf_expose_1_port: "81"
+#
+#   Simple / backward-compatible (single expose):
+#     cf_expose: "true"
+#     cf_expose_name: "app"   # optional — defaults to the docker service name
+#     cf_expose_port: "80"    # optional — defaults to PORT env var, then 80
 mapfile -t EXPOSED < <(echo "$COMPOSE_JSON" | jq -r '
   .services | to_entries[]
-  | select(.value.labels["cf_expose"] == "true")
   | .key as $svc
-  | (.value.labels["cf_expose_port"] // .value.environment.PORT // "80") as $port
-  | "\($svc):\($port)"
+  | .value.labels as $labels
+  | (
+      # Indexed form: cf_expose_N_name / cf_expose_N_port
+      [ $labels | to_entries[]
+        | select(.key | test("^cf_expose_[0-9]+_name$"))
+        | (.key | capture("^cf_expose_(?<n>[0-9]+)_name$").n) as $n
+        | {name: .value, port: ($labels["cf_expose_\($n)_port"] // "80")}
+      ]
+      | if length > 0 then
+          .[] | "\(.name):\($svc):\(.port)"
+        else
+          # Simple / legacy form: cf_expose=true
+          if $labels["cf_expose"] == "true" then
+            ($labels["cf_expose_name"] // $svc) as $name
+            | ($labels["cf_expose_port"] // "80") as $port
+            | "\($name):\($svc):\($port)"
+          else empty end
+        end
+    )
 ')
 
 [[ ${#EXPOSED[@]} -gt 0 ]] \
@@ -80,9 +106,9 @@ echo -e "  Project   : ${GREEN}${APP_PROJECT}${NC}"
 echo -e "  Namespace : ${GREEN}${APP_NAMESPACE}${NC}"
 echo -e "  Tunnel    : ${GREEN}${TUNNEL_NAME}${NC}"
 for entry in "${EXPOSED[@]}"; do
-    svc="${entry%%:*}"
-    hostname="${svc}-${TUNNEL_NAME}.iorys.dev"
-    echo -e "  ${svc} → ${GREEN}https://${hostname}${NC}"
+    name="${entry%%:*}"; rest="${entry#*:}"; svc="${rest%%:*}"
+    hostname="${name}-${TUNNEL_NAME}.iorys.dev"
+    echo -e "  ${name} (${svc}) → ${GREEN}https://${hostname}${NC}"
 done
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo ""
@@ -149,8 +175,8 @@ success "Token acquired"
 info "Configuring ingress rules..."
 INGRESS_ENTRIES=""
 for entry in "${EXPOSED[@]}"; do
-    svc="${entry%%:*}"; port="${entry##*:}"
-    hostname="${svc}-${TUNNEL_NAME}.iorys.dev"
+    name="${entry%%:*}"; rest="${entry#*:}"; svc="${rest%%:*}"; port="${rest##*:}"
+    hostname="${name}-${TUNNEL_NAME}.iorys.dev"
     INGRESS_ENTRIES+="{\"hostname\":\"${hostname}\",\"service\":\"http://${svc}:${port}\",\"originRequest\":{}},"
 done
 INGRESS_ENTRIES+="{\"service\":\"http_status:404\"}"
@@ -182,11 +208,11 @@ create_or_update_dns() {
 
 declare -A DNS_RECORD_IDS
 for entry in "${EXPOSED[@]}"; do
-    svc="${entry%%:*}"
-    hostname="${svc}-${TUNNEL_NAME}.iorys.dev"
+    name="${entry%%:*}"; rest="${entry#*:}"; svc="${rest%%:*}"
+    hostname="${name}-${TUNNEL_NAME}.iorys.dev"
     info "Creating DNS CNAME ${hostname}..."
     dns_id=$(create_or_update_dns "${hostname}")
-    DNS_RECORD_IDS["$svc"]="$dns_id"
+    DNS_RECORD_IDS["$name"]="$dns_id"
     success "DNS record ready (${dns_id})"
 done
 
@@ -196,9 +222,9 @@ update_env "APP_NAMESPACE"           "$APP_NAMESPACE"
 update_env "APP_PROJECT"             "$APP_PROJECT"
 update_env "CLOUDFLARE_TUNNEL_ID"    "$TUNNEL_ID"
 update_env "CLOUDFLARE_TUNNEL_TOKEN" "$TUNNEL_TOKEN"
-for svc in "${!DNS_RECORD_IDS[@]}"; do
-    key="CLOUDFLARE_DNS_RECORD_$(echo "$svc" | tr '[:lower:]-' '[:upper:]_')"
-    update_env "$key" "${DNS_RECORD_IDS[$svc]}"
+for name in "${!DNS_RECORD_IDS[@]}"; do
+    key="CLOUDFLARE_DNS_RECORD_$(echo "$name" | tr '[:lower:]-' '[:upper:]_')"
+    update_env "$key" "${DNS_RECORD_IDS[$name]}"
 done
 success "Saved"
 
@@ -207,9 +233,9 @@ echo "━━━━━━━━━━━━━━━━━━━━━━━━�
 echo -e "  ${GREEN}✓  Cloudflare Tunnel ready!${NC}"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 for entry in "${EXPOSED[@]}"; do
-    svc="${entry%%:*}"
-    hostname="${svc}-${TUNNEL_NAME}.iorys.dev"
-    echo -e "  🌐 ${svc}:  ${GREEN}https://${hostname}${NC}"
+    name="${entry%%:*}"
+    hostname="${name}-${TUNNEL_NAME}.iorys.dev"
+    echo -e "  🌐 ${name}:  ${GREEN}https://${hostname}${NC}"
 done
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo ""

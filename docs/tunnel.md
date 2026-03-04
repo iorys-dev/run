@@ -3,8 +3,9 @@
 Expose any local iorys dev service publicly over HTTPS via a zero-config
 Cloudflare Tunnel — no port forwarding, no self-signed certs.
 
-Subdomain pattern: `{service}-{APP_PROJECT}-{APP_NAMESPACE}.iorys.dev`
-Covered by the `*.iorys.dev` Universal SSL certificate — no extra setup.
+Subdomain pattern: `{name}-{APP_PROJECT}-{APP_NAMESPACE}.iorys.dev`
+where `{name}` is the value of `cf_expose_name` / `cf_expose_N_name`
+or the Docker service name when no explicit name is set.
 
 ---
 
@@ -66,10 +67,11 @@ CLOUDFLARE_TUNNEL_TOKEN=
 CLOUDFLARE_DNS_RECORD_NGINX=
 ```
 
-### 2. Add `cf_expose` labels to services
+### 2. Add expose labels to services
 
-In `docker-compose.yml` (or any compose file included by it), add labels to
-every service that should be publicly accessible:
+In `docker-compose.yml`, mark every service that should be publicly accessible.
+
+#### Simple form — one hostname per service
 
 ```yaml
 services:
@@ -77,11 +79,30 @@ services:
     image: nginx:1.27-alpine
     labels:
       cf_expose: "true"        # required — marks this service for exposure
+      cf_expose_name: "app"    # optional — hostname prefix; defaults to service name
       cf_expose_port: "80"     # optional — defaults to PORT env var, then 80
 ```
 
-The **hostname** is derived automatically from the service name:
-`nginx` → `nginx-{APP_PROJECT}-{APP_NAMESPACE}.iorys.dev`
+`nginx` with `cf_expose_name: "app"` → `app-{APP_PROJECT}-{APP_NAMESPACE}.iorys.dev`
+
+#### Indexed form — multiple hostnames from one service
+
+Use `cf_expose_N_name` + `cf_expose_N_port` (starting at 0) when a single
+container serves traffic on more than one port:
+
+```yaml
+services:
+  nginx:
+    image: nginx:1.27-alpine
+    labels:
+      cf_expose_0_name: "hub"      # → hub-{project}-{ns}.iorys.dev   → :80
+      cf_expose_0_port: "80"
+      cf_expose_1_name: "hub-api"  # → hub-api-{project}-{ns}.iorys.dev → :81
+      cf_expose_1_port: "81"
+```
+
+The two forms cannot be mixed on the same service — if any `cf_expose_N_name`
+label is present the indexed form takes precedence.
 
 ### 3. Add a `cloudflared` service to docker-compose
 
@@ -128,10 +149,23 @@ esac
 
 ## Label reference
 
+### Simple form
+
 | Label | Required | Default | Description |
 |-------|----------|---------|-------------|
-| `cf_expose` | yes | — | Set to `"true"` to expose the service. Any other value is ignored. |
-| `cf_expose_port` | no | `PORT` env var, then `80` | The port the service listens on inside the container. |
+| `cf_expose` | yes | — | Set to `"true"` to expose the service. |
+| `cf_expose_name` | no | service name | Hostname prefix: `{name}-{project}-{ns}.iorys.dev`. |
+| `cf_expose_port` | no | `PORT` env var, then `80` | Container port to forward to. |
+
+### Indexed form (multiple exposes per service)
+
+| Label | Required | Description |
+|-------|----------|-------------|
+| `cf_expose_N_name` | yes | Hostname prefix for expose slot N (N = 0, 1, 2, …). |
+| `cf_expose_N_port` | no (default `80`) | Container port for slot N. |
+
+If any `cf_expose_N_name` label exists on a service the indexed form is used
+and `cf_expose: "true"` is ignored for that service.
 
 ---
 
@@ -156,7 +190,7 @@ See [`.env.example`](../.env.example) for a ready-to-copy template with inline c
 | `APP_PROJECT` | The project slug (persisted). |
 | `CLOUDFLARE_TUNNEL_ID` | UUID of the created tunnel. |
 | `CLOUDFLARE_TUNNEL_TOKEN` | Token passed to the `cloudflared` container. |
-| `CLOUDFLARE_DNS_RECORD_{SERVICE}` | Cloudflare DNS record ID for each exposed service (upper-cased, hyphens → underscores). Used by `tunnel-down.sh` for cleanup. |
+| `CLOUDFLARE_DNS_RECORD_{NAME}` | Cloudflare DNS record ID per exposed name (upper-cased, hyphens → underscores). Used by `tunnel-down.sh` for cleanup. |
 
 ---
 
@@ -214,36 +248,40 @@ vendor/iorys/run/
     tunnel.md             # this file
 ```
 
-Per-project scripts in `devops/local/scripts/tunnel-up.sh` and `tunnel-down.sh`
-are **thin delegates** that exec the canonical scripts from this package.
-There is no project-specific logic in them — all configuration is via labels
-and `.env` variables.
-
 ---
 
 ## Adding a new service
 
-1. Add labels to the service in `docker-compose.yml`:
+**Single hostname per service:**
 
 ```yaml
 services:
   my-api:
     image: my-image
-    environment:
-      PORT: "3000"
     labels:
       cf_expose: "true"
+      cf_expose_name: "api"   # → api-{project}-{ns}.iorys.dev
       cf_expose_port: "3000"
 ```
 
-2. Recreate the tunnel to pick up the new ingress rule and DNS record:
+**Multiple hostnames from one service:**
+
+```yaml
+services:
+  nginx:
+    image: nginx:alpine
+    labels:
+      cf_expose_0_name: "web"   # → web-{project}-{ns}.iorys.dev  → :80
+      cf_expose_0_port: "80"
+      cf_expose_1_name: "api"   # → api-{project}-{ns}.iorys.dev  → :81
+      cf_expose_1_port: "81"
+```
+
+Then recreate the tunnel to pick up the new ingress rule and DNS record:
 
 ```bash
 ./run tunnel recreate
 ```
-
-That's it. The script discovers all `cf_expose=true` services dynamically
-on every run — no script changes needed.
 
 ---
 
