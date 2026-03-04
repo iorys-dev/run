@@ -3,17 +3,24 @@
 # tunnel-up.sh — Shared Cloudflare Tunnel provisioner for all iorys projects
 #
 # Called by tunnel_functions.sh with IORYS_RUN_DIR pointing at the project root.
-# Service discovery is label-driven — add to any docker-compose service:
+# Service discovery is label-driven. Two label forms are supported:
 #
-#   labels:
-#     cf_expose: "true"           # expose this service through the tunnel
-#     cf_expose_port: "8080"      # port cloudflared forwards to (falls back to PORT env, then 80)
+#   Simple form (one hostname per service):
+#     labels:
+#       cf_expose: "true"
+#       cf_expose_name: "app"    # optional — defaults to docker service name
+#       cf_expose_port: "8080"   # optional — defaults to PORT env var, then 80
 #
-# Hostname: {service_name}-{APP_PROJECT}-{APP_NAMESPACE}.iorys.dev
+#   Indexed form (multiple hostnames from one service):
+#     labels:
+#       cf_expose_0_name: "app"       cf_expose_0_port: "80"
+#       cf_expose_1_name: "app-api"   cf_expose_1_port: "81"
+#
+# Hostname pattern: {name}-{APP_PROJECT}-{APP_NAMESPACE}.iorys.dev
 #
 # Saves to .env:
 #   APP_NAMESPACE, APP_PROJECT, CLOUDFLARE_TUNNEL_ID, CLOUDFLARE_TUNNEL_TOKEN
-#   CLOUDFLARE_DNS_RECORD_{SERVICE_UPPER}   — one per exposed service
+#   CLOUDFLARE_DNS_RECORD_{NAME_UPPER}   — one per exposed name
 #
 # Requires in .env:
 #   CF_API_TOKEN   — Cloudflare API token (Account:Tunnel:Edit + Zone:DNS:Edit)
@@ -75,7 +82,7 @@ COMPOSE_JSON=$(docker compose -f "${PROJECT_ROOT}/docker-compose.yml" \
 mapfile -t EXPOSED < <(echo "$COMPOSE_JSON" | jq -r '
   .services | to_entries[]
   | .key as $svc
-  | .value.labels as $labels
+  | (.value.labels // {}) as $labels
   | (
       # Indexed form: cf_expose_N_name / cf_expose_N_port
       [ $labels | to_entries[]
