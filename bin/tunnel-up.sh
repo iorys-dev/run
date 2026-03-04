@@ -17,6 +17,8 @@
 #       cf_expose_1_name: "app-api"   cf_expose_1_port: "81"
 #
 # Hostname pattern: {name}-{APP_PROJECT}-{APP_NAMESPACE}.iorys.dev
+# Special name "@empty": omits the name prefix → {APP_PROJECT}-{APP_NAMESPACE}.iorys.dev
+#   Saves as CLOUDFLARE_DNS_RECORD_ROOT in .env
 #
 # Saves to .env:
 #   APP_NAMESPACE, APP_PROJECT, CLOUDFLARE_TUNNEL_ID, CLOUDFLARE_TUNNEL_TOKEN
@@ -62,6 +64,18 @@ if [[ -z "${APP_NAMESPACE:-}" ]]; then
 fi
 
 TUNNEL_NAME="${APP_PROJECT}-${APP_NAMESPACE}"
+
+# ── Hostname helpers ──────────────────────────────────────────────────────────
+# "@empty" omits the name prefix so the tunnel root domain is used directly.
+make_hostname() {
+    local name="$1"
+    [[ "$name" == "@empty" ]] && echo "${TUNNEL_NAME}.iorys.dev" || echo "${name}-${TUNNEL_NAME}.iorys.dev"
+}
+env_key_for_name() {
+    local name="$1"
+    [[ "$name" == "@empty" ]] && echo "CLOUDFLARE_DNS_RECORD_ROOT" \
+        || echo "CLOUDFLARE_DNS_RECORD_$(echo "$name" | tr '[:lower:]-' '[:upper:]_')"
+}
 
 # ── Discover exposed services from docker-compose labels ──────────────────────
 COMPOSE_JSON=$(docker compose -f "${PROJECT_ROOT}/docker-compose.yml" \
@@ -114,7 +128,7 @@ echo -e "  Namespace : ${GREEN}${APP_NAMESPACE}${NC}"
 echo -e "  Tunnel    : ${GREEN}${TUNNEL_NAME}${NC}"
 for entry in "${EXPOSED[@]}"; do
     name="${entry%%:*}"; rest="${entry#*:}"; svc="${rest%%:*}"
-    hostname="${name}-${TUNNEL_NAME}.iorys.dev"
+    hostname=$(make_hostname "$name")
     echo -e "  ${name} (${svc}) → ${GREEN}https://${hostname}${NC}"
 done
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
@@ -183,8 +197,8 @@ info "Configuring ingress rules..."
 INGRESS_ENTRIES=""
 for entry in "${EXPOSED[@]}"; do
     name="${entry%%:*}"; rest="${entry#*:}"; svc="${rest%%:*}"; port="${rest##*:}"
-    hostname="${name}-${TUNNEL_NAME}.iorys.dev"
-    INGRESS_ENTRIES+="{\"hostname\":\"${hostname}\",\"service\":\"http://${svc}:${port}\",\"originRequest\":{}},"
+    hostname=$(make_hostname "$name")
+    INGRESS_ENTRIES+="{\"hostname\":\"${hostname}\",\"service\":\"http://${svc}:${port}\",\"originRequest\":{},"
 done
 INGRESS_ENTRIES+="{\"service\":\"http_status:404\"}"
 
@@ -216,7 +230,7 @@ create_or_update_dns() {
 declare -A DNS_RECORD_IDS
 for entry in "${EXPOSED[@]}"; do
     name="${entry%%:*}"; rest="${entry#*:}"; svc="${rest%%:*}"
-    hostname="${name}-${TUNNEL_NAME}.iorys.dev"
+    hostname=$(make_hostname "$name")
     info "Creating DNS CNAME ${hostname}..."
     dns_id=$(create_or_update_dns "${hostname}")
     DNS_RECORD_IDS["$name"]="$dns_id"
@@ -230,7 +244,7 @@ update_env "APP_PROJECT"             "$APP_PROJECT"
 update_env "CLOUDFLARE_TUNNEL_ID"    "$TUNNEL_ID"
 update_env "CLOUDFLARE_TUNNEL_TOKEN" "$TUNNEL_TOKEN"
 for name in "${!DNS_RECORD_IDS[@]}"; do
-    key="CLOUDFLARE_DNS_RECORD_$(echo "$name" | tr '[:lower:]-' '[:upper:]_')"
+    key=$(env_key_for_name "$name")
     update_env "$key" "${DNS_RECORD_IDS[$name]}"
 done
 success "Saved"
@@ -241,7 +255,7 @@ echo -e "  ${GREEN}✓  Cloudflare Tunnel ready!${NC}"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 for entry in "${EXPOSED[@]}"; do
     name="${entry%%:*}"
-    hostname="${name}-${TUNNEL_NAME}.iorys.dev"
+    hostname=$(make_hostname "$name")
     echo -e "  🌐 ${name}:  ${GREEN}https://${hostname}${NC}"
 done
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"

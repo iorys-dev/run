@@ -6,6 +6,7 @@ Cloudflare Tunnel — no port forwarding, no self-signed certs.
 Subdomain pattern: `{name}-{APP_PROJECT}-{APP_NAMESPACE}.iorys.dev`
 where `{name}` is the value of `cf_expose_name` / `cf_expose_N_name`
 or the Docker service name when no explicit name is set.
+Use the special value `@empty` to omit the prefix entirely: `{APP_PROJECT}-{APP_NAMESPACE}.iorys.dev`.
 
 ---
 
@@ -154,14 +155,14 @@ esac
 | Label | Required | Default | Description |
 |-------|----------|---------|-------------|
 | `cf_expose` | yes | — | Set to `"true"` to expose the service. |
-| `cf_expose_name` | no | service name | Hostname prefix: `{name}-{project}-{ns}.iorys.dev`. |
+| `cf_expose_name` | no | service name | Hostname prefix: `{name}-{project}-{ns}.iorys.dev`. Use `@empty` to omit the prefix: `{project}-{ns}.iorys.dev` (saves as `CLOUDFLARE_DNS_RECORD_ROOT`). |
 | `cf_expose_port` | no | `PORT` env var, then `80` | Container port to forward to. |
 
 ### Indexed form (multiple exposes per service)
 
 | Label | Required | Description |
 |-------|----------|-------------|
-| `cf_expose_N_name` | yes | Hostname prefix for expose slot N (N = 0, 1, 2, …). |
+| `cf_expose_N_name` | yes | Hostname prefix for expose slot N (N = 0, 1, 2, …). Use `@empty` to omit the prefix: `{project}-{ns}.iorys.dev` (saves as `CLOUDFLARE_DNS_RECORD_ROOT`). |
 | `cf_expose_N_port` | no (default `80`) | Container port for slot N. |
 
 If any `cf_expose_N_name` label exists on a service the indexed form is used
