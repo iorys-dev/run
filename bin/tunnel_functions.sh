@@ -9,16 +9,21 @@
 #   IORYS_RUN_DIR  — absolute path to the project root (directory of the run script)
 #   DC             — docker compose command string ("docker compose" or "docker-compose")
 #
-# Projects must provide:
-#   devops/local/scripts/tunnel-up.sh   — creates tunnel + DNS, writes .env
-#   devops/local/scripts/tunnel-down.sh — destroys tunnel + DNS, cleans .env
+# Service discovery is label-driven — no per-project tunnel scripts needed.
+# Add to any service in docker-compose.yml:
 #
-# Subdomain convention:
-#   {service}-{APP_PROJECT}-{APP_NAMESPACE}.iorys.dev
-#   Covered by *.iorys.dev Universal SSL — no extra cert setup needed.
+#   labels:
+#     cf_expose: "true"           # expose via tunnel
+#     cf_expose_port: "8080"      # port (falls back to PORT env, then 80)
+#
+# Hostname: {service_name}-{APP_PROJECT}-{APP_NAMESPACE}.iorys.dev
 # ──────────────────────────────────────────────────────────────────────────────
 
 IORYS_RUN_DIR="${IORYS_RUN_DIR:-.}"
+
+# Absolute path to this script's directory (vendor/iorys/run/bin/).
+# Used to locate the canonical tunnel-up.sh / tunnel-down.sh.
+_IORYS_TUNNEL_BIN="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # ── Resolve public tunnel base domain ─────────────────────────────────────────
 # Returns "{APP_PROJECT}-{APP_NAMESPACE}.iorys.dev" when the tunnel is active.
@@ -41,33 +46,31 @@ ensureTunnel() {
     [[ -z "${CF_API_TOKEN:-}" || -z "${CF_ACCOUNT_ID:-}" ]] && return 0
 
     echo -e "\033[0;36m→  Cloudflare Tunnel not configured — creating one...\033[0m"
-    bash "${IORYS_RUN_DIR}/devops/local/scripts/tunnel-up.sh"
+    bash "${_IORYS_TUNNEL_BIN}/tunnel-up.sh"
     set -a; source "${IORYS_RUN_DIR}/.env"; set +a
 }
 
 # ── tunnel sub-command handler ─────────────────────────────────────────────────
 # Provides: up | down | recreate | status
-# Calls project-local tunnel-up.sh / tunnel-down.sh scripts.
+# Calls the canonical tunnel-up.sh / tunnel-down.sh from the iorys/run package.
 tunnel() {
     local sub="${1:-status}"
-    local scripts="${IORYS_RUN_DIR}/devops/local/scripts"
     local envfile="${IORYS_RUN_DIR}/.env"
 
     case "$sub" in
         up|create)
             echo -e "\033[0;36m→  Setting up Cloudflare Tunnel...\033[0m"
-            bash "${scripts}/tunnel-up.sh"
+            bash "${_IORYS_TUNNEL_BIN}/tunnel-up.sh"
             set -a; source "$envfile"; set +a
             ;;
         down|destroy)
             echo -e "\033[0;36m→  Tearing down Cloudflare Tunnel...\033[0m"
             ${DC:-docker compose} stop cloudflared 2>/dev/null || true
-            bash "${scripts}/tunnel-down.sh"
-            # Unset all known tunnel vars so the shell state is clean
-            unset CLOUDFLARE_TUNNEL_ID CLOUDFLARE_TUNNEL_TOKEN \
-                  CLOUDFLARE_DNS_RECORD_APP CLOUDFLARE_DNS_RECORD_POSTGRES \
-                  CLOUDFLARE_DNS_RECORD_REDIS CLOUDFLARE_DNS_RECORD_PORTAL \
-                  CLOUDFLARE_DNS_RECORD_ID 2>/dev/null || true
+            bash "${_IORYS_TUNNEL_BIN}/tunnel-down.sh"
+            # Unset all tunnel-related vars so the current shell state is clean
+            unset CLOUDFLARE_TUNNEL_ID CLOUDFLARE_TUNNEL_TOKEN 2>/dev/null || true
+            while IFS= read -r var; do unset "$var" 2>/dev/null || true; done \
+                < <(compgen -v | grep '^CLOUDFLARE_DNS_RECORD_' || true)
             [[ -f "$envfile" ]] && { set -a; source "$envfile"; set +a; }
             ;;
         recreate)
