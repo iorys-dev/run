@@ -41,10 +41,10 @@ YELLOW='\033[1;33m'
 CYAN='\033[0;36m'
 NC='\033[0m'
 
-info()    { echo -e "${CYAN}→  ${1}${NC}"; }
-success() { echo -e "${GREEN}✓  ${1}${NC}"; }
-warn()    { echo -e "${YELLOW}⚠  ${1}${NC}"; }
-fail()    { echo -e "${RED}✗  ${1}${NC}"; exit 1; }
+info()    { echo -e "${CYAN}→  ${1}${NC}" >&2; }
+success() { echo -e "${GREEN}✓  ${1}${NC}" >&2; }
+warn()    { echo -e "${YELLOW}⚠  ${1}${NC}" >&2; }
+fail()    { echo -e "${RED}✗  ${1}${NC}" >&2; exit 1; }
 
 # Portable in-place sed
 _sedi() {
